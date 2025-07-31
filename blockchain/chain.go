@@ -9,20 +9,22 @@ import (
 	"time"
 )
 
-var Blockchain []Block
-var TxPool *txPool
+// Constants used across the chain
+const (
+	chainFile          = "./data/chain.json"
+	initialDifficulty  = 3
+	maxDifficulty      = 6
+	difficultyWindow   = 5
+	targetBlockSeconds = 10
+)
 
-const chainFile = "data/chain.json"
+// Global blockchain state
+var Chain []Block
 
-func init() {
-	TxPool = &txPool{pool: []Transaction{}}
-	loadChain()
-}
-
-func loadChain() {
-	data, err := os.ReadFile(chainFile)
-	if err != nil || len(data) == 0 {
-		log.Println("[Chain] No chain found, creating genesis block...")
+// InitChain loads or creates the blockchain on node startup.
+func InitChain() {
+	if _, err := os.Stat(chainFile); os.IsNotExist(err) {
+		log.Println("[Chain] No chain found, creating genesis block")
 		genesis := Block{
 			Index:        0,
 			Timestamp:    TimestampNow(),
@@ -32,63 +34,96 @@ func loadChain() {
 			MerkleRoot:   "",
 		}
 		genesis.Hash = genesis.CalculateHash()
-		Blockchain = []Block{genesis}
-		saveChain()
-		return
+		Chain = []Block{genesis}
+		SaveChain()
+	} else {
+		LoadChain()
 	}
-	err = json.Unmarshal(data, &Blockchain)
-	if err != nil {
-		log.Fatalf("[Chain] Failed to parse chain: %v", err)
-	}
-	log.Printf("[Chain] Loaded %d blocks", len(Blockchain))
 }
 
-func saveChain() {
-	data, err := json.MarshalIndent(Blockchain, "", "  ")
+// AddBlock adds a mined block to the chain after validation.
+func AddBlock(newBlock Block) {
+	lastBlock := GetLastBlock()
+	if IsValidNewBlock(newBlock, lastBlock) {
+		Chain = append(Chain, newBlock)
+		SaveChain()
+		log.Printf("[Chain] Block #%d added", newBlock.Index)
+	} else {
+		log.Printf("[Chain] Rejected invalid block #%d", newBlock.Index)
+	}
+}
+
+// IsValidNewBlock checks if a new block is valid against the last block.
+func IsValidNewBlock(newBlock, prevBlock Block) bool {
+	if newBlock.Index != prevBlock.Index+1 {
+		return false
+	}
+	if newBlock.PrevHash != prevBlock.Hash {
+		return false
+	}
+	if newBlock.Hash != newBlock.CalculateHash() {
+		return false
+	}
+	return true
+}
+
+// GetLastBlock returns the most recent block in the chain.
+func GetLastBlock() Block {
+	return Chain[len(Chain)-1]
+}
+
+// SaveChain persists the chain to disk.
+func SaveChain() {
+	data, err := json.MarshalIndent(Chain, "", "  ")
 	if err != nil {
-		log.Printf("[Chain] Failed to encode chain: %v", err)
+		log.Printf("[Chain] Failed to marshal chain: %v", err)
 		return
 	}
 	err = os.WriteFile(chainFile, data, 0644)
 	if err != nil {
-		log.Printf("[Chain] Failed to save chain: %v", err)
+		log.Printf("[Chain] Failed to write chain file: %v", err)
 	}
 }
 
-func AddBlock(b Block) {
-	Blockchain = append(Blockchain, b)
-	saveChain()
-}
-
-func GetLastBlock() Block {
-	if len(Blockchain) == 0 {
-		return Block{}
+// LoadChain reads the chain from disk.
+func LoadChain() {
+	data, err := os.ReadFile(chainFile)
+	if err != nil {
+		log.Fatalf("[Chain] Failed to read chain file: %v", err)
 	}
-	return Blockchain[len(Blockchain)-1]
-}
-
-func GetChain() []Block {
-	return Blockchain
-}
-
-func GetChainStats() map[string]interface{} {
-	latest := GetLastBlock()
-	return map[string]interface{}{
-		"height":     len(Blockchain),
-		"latestHash": latest.Hash,
-		"timestamp":  latest.Timestamp,
-		"threats":    countThreats(),
+	err = json.Unmarshal(data, &Chain)
+	if err != nil {
+		log.Fatalf("[Chain] Failed to parse chain: %v", err)
 	}
 }
 
-func countThreats() int {
-	total := 0
-	for _, block := range Blockchain {
-		total += len(block.Transactions)
-	}
-	return total
-}
-
+// TimestampNow returns the current time in RFC3339 format.
 func TimestampNow() string {
-	return time.Now().UTC().Format(time.RFC3339)
+	return time.Now().Format(time.RFC3339)
+}
+
+// GetChain returns the full chain (for APIs or inspection).
+func GetChain() []Block {
+	return Chain
+}
+
+// GetChainStats exposes summary stats for external queries.
+func GetChainStats() map[string]interface{} {
+	last := GetLastBlock()
+	return map[string]interface{}{
+		"length":        len(Chain),
+		"latest_index":  last.Index,
+		"latest_hash":   last.Hash,
+		"latest_time":   last.Timestamp,
+		"threats_total": countThreats(),
+	}
+}
+
+// countThreats counts the number of transactions (threats) in the chain.
+func countThreats() int {
+	count := 0
+	for _, b := range Chain {
+		count += len(b.Transactions)
+	}
+	return count
 }

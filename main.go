@@ -1,4 +1,5 @@
-//dw-chain/main.go
+// dw-chain/main.go
+
 package main
 
 import (
@@ -6,15 +7,21 @@ import (
 	"net/http"
 
 	"dw-chain/api"
+	"dw-chain/blockchain"
 )
 
 func main() {
-	log.Println("[Core] dw-chain threat index starting...")
+	log.Println("[Main] Starting DW-Chain (Threat Index)")
+
+	// Initialize blockchain and mempool
+	blockchain.InitChain()
+
+	// Initialize HTTP router
 	api.InitRouter()
 
-	log.Println("[Core] Server listening on :8333")
-	err := http.ListenAndServe(":8333", nil)
+	log.Println("[Main] Listening on http://localhost:8080")
+	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
-		log.Fatalf("[Core] Failed to start server: %v", err)
+		log.Fatalf("[Main] Server error: %v", err)
 	}
 }

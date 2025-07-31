@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Block defines the structure of each block in the threat chain.
+// Block defines the structure of each block in the chain
 type Block struct {
 	Index        int           `json:"index"`
 	Timestamp    string        `json:"timestamp"`
@@ -19,15 +19,14 @@ type Block struct {
 	MerkleRoot   string        `json:"merkle_root"`
 }
 
-// CalculateHash creates the SHA-256 hash for a block based on its contents.
+// CalculateHash computes the SHA-256 hash of a block's core contents
 func (b *Block) CalculateHash() string {
 	record := string(b.Index) + b.Timestamp + b.PrevHash + b.MerkleRoot + string(b.Nonce)
 	hash := sha256.Sum256([]byte(record))
 	return hex.EncodeToString(hash[:])
 }
 
-// GenerateMerkleRoot computes a simple Merkle root from all transactions.
-// This version uses a flat hash + concatenate strategy for simplicity.
+// GenerateMerkleRoot creates a simple Merkle Root hash from transactions
 func GenerateMerkleRoot(txs []Transaction) string {
 	if len(txs) == 0 {
 		return ""
@@ -46,7 +45,7 @@ func GenerateMerkleRoot(txs []Transaction) string {
 				hash := sha256.Sum256([]byte(combined))
 				temp = append(temp, hex.EncodeToString(hash[:]))
 			} else {
-				// Duplicate last hash if odd number
+				// Duplicate last hash if odd
 				hash := sha256.Sum256([]byte(hashes[i] + hashes[i]))
 				temp = append(temp, hex.EncodeToString(hash[:]))
 			}
@@ -56,7 +55,7 @@ func GenerateMerkleRoot(txs []Transaction) string {
 	return hashes[0]
 }
 
-// HashMatchesDifficulty verifies if a hash has the required number of leading zeroes.
+// HashMatchesDifficulty checks if a block hash satisfies difficulty criteria
 func HashMatchesDifficulty(hash string, difficulty int) bool {
 	prefix := strings.Repeat("0", difficulty)
 	return strings.HasPrefix(hash, prefix)
