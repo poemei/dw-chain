@@ -1,77 +1,57 @@
-//dw-chain/main.go
 package main
 
 import (
-    "fmt"
-    "os"
-    "time"
+	"fmt"
+	"os"
+	"time"
 
-    "dw-chain/api"
-    "dw-chain/blockchain"
+	"dw-chain/api"
+	"dw-chain/blockchain"
 )
 
 const dataDir = "data/"
 
 func main() {
-    fmt.Println("?? Booting Chain Miner Node...")
+	fmt.Println("?? Booting ThreatChain Miner Node...")
 
-    chain := blockchain.InitBlockchain()
-    config := blockchain.AppConfig
-    balances := blockchain.LoadBalances()
-    blockchain.LoadPeers()
+	chain := blockchain.InitBlockchain()
+	blockchain.LoadPeers()
 
-    // Start local status server
-    api.StartServer(&chain, &balances)
+	// Start the API server
+	api.StartServer(&chain)
 
-    for {
-        fmt.Println("?? Checking transactions...")
+	for {
+		fmt.Println("? Checking for threats...")
 
-        txs := blockchain.LoadTransactions()
-        if len(txs) == 0 {
-            fmt.Println("??? No pending transactions. Sleeping...")
-            time.Sleep(15 * time.Second)
-            continue
-        }
+		txs := blockchain.LoadTransactions()
+		if len(txs) == 0 {
+			fmt.Println("?? No pending threats. Sleeping...")
+			time.Sleep(15 * time.Second)
+			continue
+		}
 
-        validTxs := []blockchain.Transaction{}
-        for _, tx := range txs {
-            if tx.Sender != "GENESIS" && balances[tx.Sender] < tx.Amount {
-                fmt.Printf("? Tx skipped (insufficient funds): %s", tx.Sender)
-                continue
-            }
-            balances[tx.Sender] -= tx.Amount
-            balances[tx.Recipient] += tx.Amount
-            validTxs = append(validTxs, tx)
-        }
+		newBlock := blockchain.Block{
+			Index:        len(chain.Blocks),
+			Timestamp:    blockchain.Now(),
+			Threats:      txs,
+			PrevHash:     chain.LatestBlock().Hash,
+			Difficulty:   chain.AdjustDifficulty(),
+			Miner:        "ThreatNode",
+		}
 
-        if len(validTxs) == 0 {
-            fmt.Println("?? No valid transactions. Sleeping...")
-            time.Sleep(15 * time.Second)
-            continue
-        }
+		fmt.Println("??  Mining block...")
+		blockchain.MineBlock(&newBlock)
 
-        newDifficulty := chain.AdjustDifficulty()
-        newBlock := blockchain.Block{
-            Index:        len(chain.Blocks),
-            Timestamp:    blockchain.Now(),
-            Transactions: validTxs,
-            PrevHash:     chain.LatestBlock().Hash,
-            Difficulty:   newDifficulty,
-            Miner:        "PiNode",
-        }
+		fmt.Printf("? Block mined: %s\n", newBlock.Hash)
 
-        fmt.Println("?? Starting mining process...")
-        blockchain.MineBlock(&newBlock, config.MinerThreads)
-        fmt.Printf("? Block mined: %s", newBlock.Hash)
+		chain.Blocks = append(chain.Blocks, newBlock)
+		chain.Save()
 
-        chain.Blocks = append(chain.Blocks, newBlock)
-        chain.Save()
+		// Clear the transaction queue
+		os.WriteFile(dataDir+"transactions.json", []byte("[]"), 0644)
 
-        blockchain.SaveBalances(balances)
-        os.WriteFile(dataDir+"transactions.json", []byte("[]"), 0644)
-
-        fmt.Println("?? Block committed. Pausing...")
-        blockchain.BroadcastBlock(newBlock)
-        time.Sleep(15 * time.Second)
-    }
+		fmt.Println("?? Block committed. Broadcasting...")
+		blockchain.BroadcastBlock(newBlock)
+		time.Sleep(15 * time.Second)
+	}
 }
