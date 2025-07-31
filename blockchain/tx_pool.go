@@ -1,37 +1,32 @@
-// dw-chain/blockchain/tx_pool.go
-
+// tx_pool.go
 package blockchain
 
-import "sync"
+import (
+	"encoding/json"
+	"os"
+	"time"
+)
 
-// txPool manages the in-memory pool of threat transactions waiting to be mined.
-type txPool struct {
-	mu    sync.Mutex
-	pool  []Transaction
+//const dataDir = "data/"
+
+func LoadTransactions() []Transaction {
+	data, _ := os.ReadFile(dataDir+"transactions.json")
+	var txs []Transaction
+	json.Unmarshal(data, &txs)
+	return txs
 }
 
-// TxPool is the global transaction pool used by miner and API.
-var TxPool = &txPool{}
-
-// Add inserts a transaction into the mempool.
-func (tp *txPool) Add(tx Transaction) {
-	tp.mu.Lock()
-	defer tp.mu.Unlock()
-	tp.pool = append(tp.pool, tx)
+func SaveTransactions(txs []Transaction) {
+	data, _ := json.MarshalIndent(txs, "", "  ")
+	os.WriteFile(dataDir+"transactions.json", data, 0644)
 }
 
-// FetchAll returns a copy of all transactions currently in the pool.
-func (tp *txPool) FetchAll() []Transaction {
-	tp.mu.Lock()
-	defer tp.mu.Unlock()
-	clone := make([]Transaction, len(tp.pool))
-	copy(clone, tp.pool)
-	return clone
-}
-
-// Clear empties the transaction pool after block creation.
-func (tp *txPool) Clear() {
-	tp.mu.Lock()
-	defer tp.mu.Unlock()
-	tp.pool = []Transaction{}
+func NewTransaction(sender, recipient string, amount float64, signature string) Transaction {
+	return Transaction{
+		Sender:    sender,
+		Recipient: recipient,
+		Amount:    amount,
+		Timestamp: time.Now().Unix(),
+		Signature: signature,
+	}
 }

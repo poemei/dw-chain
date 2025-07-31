@@ -1,0 +1,9 @@
+[
+ {
+	 "sender": "GENESIS",
+	 "recipient": "Poe",
+	 "amount": 1000000000,
+	 "timestamp": 1752294535,
+	 "signature": "Manual-Test
+ }
+]

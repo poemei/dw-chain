@@ -1,0 +1,5 @@
+{
+  "miner_threads": 3,
+  "block_target_seconds": 600,
+  "difficulty_window": 10
+}

@@ -1,129 +1,81 @@
-// dw-chain/blockchain/chain.go
-
 package blockchain
 
 import (
 	"encoding/json"
-	"log"
 	"os"
-	"time"
 )
 
-// Constants used across the chain
-const (
-	chainFile          = "./data/chain.json"
-	initialDifficulty  = 3
-	maxDifficulty      = 6
-	difficultyWindow   = 5
-	targetBlockSeconds = 10
-)
-
-// Global blockchain state
-var Chain []Block
-
-// InitChain loads or creates the blockchain on node startup.
-func InitChain() {
-	if _, err := os.Stat(chainFile); os.IsNotExist(err) {
-		log.Println("[Chain] No chain found, creating genesis block")
-		genesis := Block{
-			Index:        0,
-			Timestamp:    TimestampNow(),
-			Transactions: []Transaction{},
-			PrevHash:     "",
-			Nonce:        0,
-			MerkleRoot:   "",
-		}
-		genesis.Hash = genesis.CalculateHash()
-		Chain = []Block{genesis}
-		SaveChain()
-	} else {
-		LoadChain()
-	}
+type Blockchain struct {
+	Blocks []Block
 }
 
-// AddBlock adds a mined block to the chain after validation.
-func AddBlock(newBlock Block) {
-	lastBlock := GetLastBlock()
-	if IsValidNewBlock(newBlock, lastBlock) {
-		Chain = append(Chain, newBlock)
-		SaveChain()
-		log.Printf("[Chain] Block #%d added", newBlock.Index)
-	} else {
-		log.Printf("[Chain] Rejected invalid block #%d", newBlock.Index)
-	}
+// Config holds dynamic runtime configuration
+type Config struct {
+	MinerThreads       int `json:"miner_threads"`
+	BlockTargetSeconds int `json:"block_target_seconds"`
+	DifficultyWindow   int `json:"difficulty_window"`
 }
 
-// IsValidNewBlock checks if a new block is valid against the last block.
-func IsValidNewBlock(newBlock, prevBlock Block) bool {
-	if newBlock.Index != prevBlock.Index+1 {
-		return false
+var AppConfig Config
+
+func InitBlockchain() Blockchain {
+	loadConfig()
+
+	if _, err := os.Stat("data/chain.json"); err == nil {
+		data, _ := os.ReadFile("data/chain.json")
+		var chain Blockchain
+		json.Unmarshal(data, &chain)
+		return chain
 	}
-	if newBlock.PrevHash != prevBlock.Hash {
-		return false
+
+	genesis := Block{
+		Index:        0,
+		Timestamp:    Now(),
+		Transactions: []Transaction{},
+		PrevHash:     "0",
+		Difficulty:   3,
+		Miner:        "GENESIS",
 	}
-	if newBlock.Hash != newBlock.CalculateHash() {
-		return false
-	}
-	return true
+	MineBlock(&genesis, AppConfig.MinerThreads)
+	chain := Blockchain{Blocks: []Block{genesis}}
+	chain.Save()
+	return chain
 }
 
-// GetLastBlock returns the most recent block in the chain.
-func GetLastBlock() Block {
-	return Chain[len(Chain)-1]
+func (bc *Blockchain) Save() {
+	data, _ := json.MarshalIndent(bc, "", "  ")
+	os.WriteFile("data/chain.json", data, 0644)
 }
 
-// SaveChain persists the chain to disk.
-func SaveChain() {
-	data, err := json.MarshalIndent(Chain, "", "  ")
+func (bc *Blockchain) LatestBlock() Block {
+	return bc.Blocks[len(bc.Blocks)-1]
+}
+
+func loadConfig() {
+	file, err := os.ReadFile("data/config.json")
 	if err != nil {
-		log.Printf("[Chain] Failed to marshal chain: %v", err)
+		AppConfig = Config{MinerThreads: 3, BlockTargetSeconds: 600, DifficultyWindow: 10}
 		return
 	}
-	err = os.WriteFile(chainFile, data, 0644)
-	if err != nil {
-		log.Printf("[Chain] Failed to write chain file: %v", err)
-	}
+	json.Unmarshal(file, &AppConfig)
 }
 
-// LoadChain reads the chain from disk.
-func LoadChain() {
-	data, err := os.ReadFile(chainFile)
-	if err != nil {
-		log.Fatalf("[Chain] Failed to read chain file: %v", err)
+func (bc *Blockchain) AdjustDifficulty() int {
+	if len(bc.Blocks) < AppConfig.DifficultyWindow+1 {
+		return bc.LatestBlock().Difficulty
 	}
-	err = json.Unmarshal(data, &Chain)
-	if err != nil {
-		log.Fatalf("[Chain] Failed to parse chain: %v", err)
+
+	start := bc.Blocks[len(bc.Blocks)-AppConfig.DifficultyWindow-1].Timestamp
+	end := bc.LatestBlock().Timestamp
+	actual := end - start
+	expected := int64(AppConfig.BlockTargetSeconds * AppConfig.DifficultyWindow)
+
+	if actual < expected/2 {
+		return bc.LatestBlock().Difficulty + 1
+	} else if actual > expected*2 {
+		if bc.LatestBlock().Difficulty > 1 {
+			return bc.LatestBlock().Difficulty - 1
+		}
 	}
-}
-
-// TimestampNow returns the current time in RFC3339 format.
-func TimestampNow() string {
-	return time.Now().Format(time.RFC3339)
-}
-
-// GetChain returns the full chain (for APIs or inspection).
-func GetChain() []Block {
-	return Chain
-}
-
-// GetChainStats exposes summary stats for external queries.
-func GetChainStats() map[string]interface{} {
-	last := GetLastBlock()
-	return map[string]interface{}{
-		"length":        len(Chain),
-		"latest_index":  last.Index,
-		"latest_hash":   last.Hash,
-		"latest_time":   last.Timestamp,
-		"threats_total": countThreats(),
-	}
-}
-
-// countThreats counts the number of transactions (threats) in the chain.
-func countThreats() int {
-	count := 0
-	for _, b := range Chain {
-		count += len(b.Transactions)
-	}
-	return count
+	return bc.LatestBlock().Difficulty
 }
