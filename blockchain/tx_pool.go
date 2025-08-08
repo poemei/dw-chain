@@ -9,9 +9,6 @@ import (
 
 //const dataDir = "data/"
 
-var ThreatPool []ThreatTransaction
-
-
 func LoadTransactions() []Transaction {
 	data, _ := os.ReadFile(dataDir+"transactions.json")
 	var txs []Transaction
@@ -24,27 +21,12 @@ func SaveTransactions(txs []Transaction) {
 	os.WriteFile(dataDir+"transactions.json", data, 0644)
 }
 
-func NewTransaction(ip string, reason string, timestamp string) Transaction {
-	// If no timestamp provided, generate one
-	if timestamp == "" {
-		timestamp = time.Now().Format(time.RFC3339)
-	}
-
+func NewTransaction(sender, recipient string, amount float64, signature string) Transaction {
 	return Transaction{
-		IP:        ip,
-		Reason:    reason,
-		Timestamp: timestamp,
+		Sender:    sender,
+		Recipient: recipient,
+		Amount:    amount,
+		Timestamp: time.Now().Unix(),
+		Signature: signature,
 	}
-}
-
-// AddThreat queues a new threat to the mempool.
-func AddThreat(tx ThreatTransaction) {
-	ThreatPool = append(ThreatPool, tx)
-}
-
-// FetchThreats returns a copy of the threat pool and resets it.
-func FetchThreats() []ThreatTransaction {
-	txs := ThreatPool
-	ThreatPool = []ThreatTransaction{}
-	return txs
 }

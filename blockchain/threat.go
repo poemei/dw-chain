@@ -1,24 +1,40 @@
-// dw-chain/blockchain/threat.go
 package blockchain
 
+import (
+    "crypto/sha256"
+    "encoding/hex"
+    "fmt"
+    "time"
+)
+
+// Threat represents a single threat intelligence report.
 type Threat struct {
-    IP        string `json:"ip"`
-    Reason    string `json:"reason"`
-    Timestamp string `json:"timestamp"`
+    ID        string // unique ID, e.g. UUID
+    Domain    string // source domain
+    Type      string // e.g. "malware", "phishing"
+    Severity  int    // 1–10 scale
+    Timestamp int64  // unix seconds
+    Hash      string // SHA256 of the serialized fields
 }
 
-// ThreatTransaction defines the structure of a threat report.
-type ThreatTransaction struct {
-	IP        string `json:"ip"`
-	Reason    string `json:"reason"`
-	Timestamp int64  `json:"timestamp"`
+// ComputeHash serializes the core fields and returns hex SHA256.
+func (t *Threat) ComputeHash() string {
+    payload := fmt.Sprintf("%s|%s|%s|%d|%d",
+        t.ID, t.Domain, t.Type, t.Severity, t.Timestamp,
+    )
+    sum := sha256.Sum256([]byte(payload))
+    return hex.EncodeToString(sum[:])
 }
 
-// NewThreat creates a new ThreatTransaction with the current timestamp.
-func NewThreat(ip, reason string) ThreatTransaction {
-	return ThreatTransaction{
-		IP:        ip,
-		Reason:    reason,
-		Timestamp: time.Now().Unix(),
-	}
+// NewThreat constructs a Threat with current timestamp and correct Hash.
+func NewThreat(id, domain, typ string, severity int) *Threat {
+    t := &Threat{
+        ID:        id,
+        Domain:    domain,
+        Type:      typ,
+        Severity:  severity,
+        Timestamp: time.Now().Unix(),
+    }
+    t.Hash = t.ComputeHash()
+    return t
 }

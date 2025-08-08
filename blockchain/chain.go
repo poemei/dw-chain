@@ -1,81 +1,90 @@
+// File: blockchain/chain.go
+// Version 1.0
 package blockchain
 
 import (
-	"encoding/json"
-	"os"
+    "encoding/json"
+    "fmt"
+    "io/ioutil"
+    "log"
+    "sync"
 )
 
-type Blockchain struct {
-	Blocks []Block
+const chainFile = "data/chain_data.json"
+
+// Chain is the in-memory ledger of blocks.
+var (
+    Chain      []*Block
+    ChainMutex sync.Mutex
+)
+
+// InitGenesis initializes the chain from disk or with a genesis block.
+func InitGenesis() {
+    log.Println("[BLOCKCHAIN] InitGenesis started")
+    if loadChainFromDisk() {
+        log.Println("[BLOCKCHAIN] Loaded existing chain from disk")
+        return
+    }
+    log.Println("[BLOCKCHAIN] No existing chain on disk, creating genesis block")
+    gen := NewBlock(0, "genesis", nil)
+    Chain = []*Block{gen}
+    saveChainToDisk()
 }
 
-// Config holds dynamic runtime configuration
-type Config struct {
-	MinerThreads       int `json:"miner_threads"`
-	BlockTargetSeconds int `json:"block_target_seconds"`
-	DifficultyWindow   int `json:"difficulty_window"`
+// LatestBlock returns the most recent block on the chain.
+func LatestBlock() *Block {
+    return Chain[len(Chain)-1]
 }
 
-var AppConfig Config
-
-func InitBlockchain() Blockchain {
-	loadConfig()
-
-	if _, err := os.Stat("data/chain.json"); err == nil {
-		data, _ := os.ReadFile("data/chain.json")
-		var chain Blockchain
-		json.Unmarshal(data, &chain)
-		return chain
-	}
-
-	genesis := Block{
-		Index:        0,
-		Timestamp:    Now(),
-		Transactions: []Transaction{},
-		PrevHash:     "0",
-		Difficulty:   3,
-		Miner:        "GENESIS",
-	}
-	MineBlock(&genesis, AppConfig.MinerThreads)
-	chain := Blockchain{Blocks: []Block{genesis}}
-	chain.Save()
-	return chain
+// MineThreats loads pending threats, creates a new block, appends to the chain, persists, and returns the new block.
+func MineThreats() *Block {
+    prev := LatestBlock()
+    threats := LoadThreats()
+    newBlock := NewBlock(prev.Index+1, prev.Hash, threats)
+    ChainMutex.Lock()
+    Chain = append(Chain, newBlock)
+    ChainMutex.Unlock()
+    saveChainToDisk()
+    log.Printf("[BLOCKCHAIN] Mined block #%d with %d threats", newBlock.Index, len(threats))
+    return newBlock
 }
 
-func (bc *Blockchain) Save() {
-	data, _ := json.MarshalIndent(bc, "", "  ")
-	os.WriteFile("data/chain.json", data, 0644)
+// AppendBlock validates and appends an incoming block to the chain.
+func AppendBlock(b *Block) error {
+    ChainMutex.Lock()
+    defer ChainMutex.Unlock()
+    last := Chain[len(Chain)-1]
+    if b.Index != last.Index+1 {
+        return fmt.Errorf("invalid index %d, expected %d", b.Index, last.Index+1)
+    }
+    if b.PrevHash != last.Hash {
+        return fmt.Errorf("invalid prev hash, got %s, expected %s", b.PrevHash, last.Hash)
+    }
+    if b.ComputeHash() != b.Hash {
+        return fmt.Errorf("invalid hash, computed %s, got %s", b.ComputeHash(), b.Hash)
+    }
+    Chain = append(Chain, b)
+    saveChainToDisk()
+    return nil
 }
 
-func (bc *Blockchain) LatestBlock() Block {
-	return bc.Blocks[len(bc.Blocks)-1]
+func loadChainFromDisk() bool {
+    data, err := ioutil.ReadFile(chainFile)
+    if err != nil {
+        return false
+    }
+    var loaded []*Block
+    if err := json.Unmarshal(data, &loaded); err != nil {
+        return false
+    }
+    Chain = loaded
+    return true
 }
 
-func loadConfig() {
-	file, err := os.ReadFile("data/config.json")
-	if err != nil {
-		AppConfig = Config{MinerThreads: 3, BlockTargetSeconds: 600, DifficultyWindow: 10}
-		return
-	}
-	json.Unmarshal(file, &AppConfig)
-}
-
-func (bc *Blockchain) AdjustDifficulty() int {
-	if len(bc.Blocks) < AppConfig.DifficultyWindow+1 {
-		return bc.LatestBlock().Difficulty
-	}
-
-	start := bc.Blocks[len(bc.Blocks)-AppConfig.DifficultyWindow-1].Timestamp
-	end := bc.LatestBlock().Timestamp
-	actual := end - start
-	expected := int64(AppConfig.BlockTargetSeconds * AppConfig.DifficultyWindow)
-
-	if actual < expected/2 {
-		return bc.LatestBlock().Difficulty + 1
-	} else if actual > expected*2 {
-		if bc.LatestBlock().Difficulty > 1 {
-			return bc.LatestBlock().Difficulty - 1
-		}
-	}
-	return bc.LatestBlock().Difficulty
+func saveChainToDisk() {
+    data, err := json.MarshalIndent(Chain, "", "  ")
+    if err != nil {
+        return
+    }
+    ioutil.WriteFile(chainFile, data, 0644)
 }
